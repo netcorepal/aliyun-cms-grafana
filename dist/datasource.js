@@ -85,7 +85,7 @@ System.register(["lodash", "./signer.js"], function (_export, _context) {
                 group = '';
               }
               //定义Promise元数据
-              var request = _this.getDimensionsByGroup(group, project).then(function (response) {
+              var request = _this.getDimensionsByGroup(_this.getVariableValue(group), _this.getVariableValue(project)).then(function (response) {
                 // console.log(JSON.stringify(response));
                 //处理group--根据GroupId获取该组下的所有实例Id
                 if ('200' == response.code && response.data.length > 0) {
@@ -108,8 +108,10 @@ System.register(["lodash", "./signer.js"], function (_export, _context) {
                   // console.log(project.indexOf("acs_logMonitor") == -1);
                   if (project.indexOf("acs_custom") != -1 || project.indexOf("acs_logMonitor") != -1) {
                     var dimensionAcsJson = target.dimensions[0];
-                    var dimensionAcsObj = { "groupId": group.toString(),
-                      "dimension": dimensionAcsJson.replace(/\&/gi, '%26').replace(/\{/gi, '%7B').replace(/\}/gi, '%7D') };
+                    var dimensionAcsObj = {
+                      "groupId": group.toString(),
+                      "dimension": dimensionAcsJson.replace(/\&/gi, '%26').replace(/\{/gi, '%7B').replace(/\}/gi, '%7D')
+                    };
                     dimensions = JSON.stringify(dimensionAcsObj);
                   } else {
                     //数组对象
@@ -117,12 +119,13 @@ System.register(["lodash", "./signer.js"], function (_export, _context) {
                     var dimensionJson = target.dimensions;
                     var i = dimensionJson.length;
                     while (i--) {
-                      dimensionArray.push({ "instanceId": dimensionJson[i] });
+                      dimensionArray.push({ "instanceId": _this.getVariableValue(dimensionJson[i]) });
                     }
                     dimensions = '';
                     dimensions = dimensions.concat(JSON.stringify(dimensionArray));
                   }
                 }
+                //dimensions = this.getVariableValue(target.dimensions[0]);
                 //拼接查询参数
                 var queryConcat = query + "&Project=" + project + "&Metric=" + metric + "&Period=" + period + "&Dimensions=" + dimensions + "&StartTime=" + parseInt(options.range.from._d.getTime()) + "&EndTime=" + parseInt(options.range.to._d.getTime());
                 var param = {
@@ -191,6 +194,18 @@ System.register(["lodash", "./signer.js"], function (_export, _context) {
             });
           }
         }, {
+          key: "getVariableValue",
+          value: function getVariableValue(name) {
+            var variable = this.templateSrv.variables.find(function (p) {
+              return "$" + p.name == name;
+            });
+            if (variable == null) {
+              return name;
+            }
+            var intVar = parseInt(variable.current.value);
+            return isNaN(intVar) ? variable.current.value : intVar;
+          }
+        }, {
           key: "testDatasource",
           value: function testDatasource() {
             var param = {
@@ -213,7 +228,55 @@ System.register(["lodash", "./signer.js"], function (_export, _context) {
           value: function annotationQuery(options) {}
         }, {
           key: "metricFindQuery",
-          value: function metricFindQuery(options) {}
+          value: function metricFindQuery(query, options) {
+
+            function format(result, type) {
+              if (result == null || result.length == 0) {
+                return [];
+              }
+
+              if (type == "group") {
+                return result;
+              }
+              if (type == "host") {
+                var d = result.data;
+                var arr = [];
+                for (var i = 0; i < d.length; i++) {
+                  arr[i] = { "text": d[i].instanceId, "value": d[i].instanceId };
+                }
+                return arr;
+              }
+              result.forEach(function (r) {
+                r.text = r.text[0];r.value = r.value[0];
+              });
+              return result;
+              //return [{ "text": "a", "value": "1" }, { "text": "b", "value": "2" }];
+            };
+
+            if (query == "project.*") {
+              //project
+              return this.getProject().then(function (result) {
+                return format(result, "project");
+              });
+            }
+
+            if (query == "group.*") {
+              return this.getGroups().then(function (result) {
+                return format(result, "group");
+              });
+            }
+            var pars = query.split(".");
+            if (pars.length == 4) {
+              if (pars[2] == "host") {
+                var vb = options.variable.templateSrv.variables.find(function (p) {
+                  return p.name == "group";
+                });
+                return this.getDimensionsByGroup(this.getVariableValue("$group")).then(function (result) {
+                  return format(result, "host");
+                });
+              }
+            }
+          }
         }, {
           key: "buildRealUrl",
           value: function buildRealUrl(param) {
