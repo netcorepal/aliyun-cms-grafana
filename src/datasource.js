@@ -16,7 +16,7 @@ export class GenericDatasource {
   query(options) {
     let requests = []
     let promise = Promise.resolve();
-    var result = [];
+    var result = { data: [] };
     _(options.targets).forEach(target => {
       //非空参数判空处理
       if (!target.project || !target.metric || !target.ycol || !target.xcol) {
@@ -24,15 +24,8 @@ export class GenericDatasource {
       }
       var project = target.project;
       var metric = target.metric;
-      //默认数组
-      var ycol = target.ycol;
-      var xcol = target.xcol;
-      var describe = target.describe;
-      if (!describe) {
-        describe = '';
-      } else {
-        describe = describe + ".";
-      }
+
+
       var query = "/?Action=QueryMetricList&Length=2000";
       var dimensions = "";
       var period = target.period;
@@ -44,7 +37,7 @@ export class GenericDatasource {
         group = '';
       }
       //定义Promise元数据
-      let request = this.getDimensionsByGroup(this.getVariableValue(group),this.getVariableValue(project)).then(response => {
+      let request = this.getDimensionsByGroup(this.getVariableValue(group), this.getVariableValue(project)).then(response => {
         // console.log(JSON.stringify(response));
         //处理group--根据GroupId获取该组下的所有实例Id
         if ('200' == response.code && response.data.length > 0) {
@@ -57,7 +50,7 @@ export class GenericDatasource {
         if (project.indexOf("acs_custom") == -1 || project.indexOf("acs_logMonitor") == -1) {
           dimensions = '';
         }
-      }).then(() => {
+      }).then(async () => {
         //GroupId存在的同时,dimensions存在,则dimensions覆盖Group下的所有实例Id，以dimensions为准
         if (target.dimensions.length == 0) {
           dimensions = dimensions;
@@ -76,82 +69,105 @@ export class GenericDatasource {
             //数组对象
             var dimensionArray = [];
             var dimensionJson = target.dimensions;
+            if (target.dimensions.length == 1 && target.dimensions[0] == "$host") {
+              dimensionJson = this.getVariableValue("$host");
+              dimensionJson = Array.isArray(dimensionJson) ? dimensionJson : [dimensionJson];
+            }
             var i = dimensionJson.length;
+            var pros = [];
             while (i--) {
-              dimensionArray.push({ "instanceId": this.getVariableValue(dimensionJson[i]) });
+              //dimensionArray.push({ "instanceId": dimensionJson[i] });
+              dimensions = JSON.stringify({ "instanceId": dimensionJson[i] });
+              var queryConcat = query + "&Project=" + project + "&Metric=" + metric +
+                "&Period=" + period + "&Dimensions=" + dimensions +
+                "&StartTime=" + (parseInt(options.range.from._d.getTime())) +
+                "&EndTime=" + (parseInt(options.range.to._d.getTime()));
+              pros.push(this.doQuery(result, target, queryConcat));
             }
-            dimensions = '';
-            dimensions = dimensions.concat(JSON.stringify(dimensionArray));
+            await Promise.all(pros)
           }
         }
-        //dimensions = this.getVariableValue(target.dimensions[0]);
-        //拼接查询参数
-        var queryConcat = query + "&Project=" + project + "&Metric=" + metric +
-          "&Period=" + period + "&Dimensions=" + dimensions +
-          "&StartTime=" + (parseInt(options.range.from._d.getTime())) +
-          "&EndTime=" + (parseInt(options.range.to._d.getTime()));
-        var param = {
-          path: queryConcat,
-          method: "GET"
-        };
-        // 签名已拼接的待查询URL
-        query = this.buildRealUrl(param);
-        // console.log("查看query的值："+query);
-        if (_.isEmpty(query)) {
-          var d = this.q.defer();
-          d.resolve({ data: [] });
-          return d.promise;
-        }
-        // 根据URL发起请求
-        return this.backendSrv.datasourceRequest({
-          url: query,
-          method: 'GET',
-          headers: this.headers
-        }).then(response => {
-          if (response.status == '200' && response.data.Code == '200') {
-            // 处理返回结果 (需优化)
-            var resResult = [];
-            // 解析返回的Datapoints数据集
-            var dataDatapoints = angular.fromJson(response.data.Datapoints);
-            // console.log("长度"+dataDatapoints.length);
-            // console.log(JSON.stringify(dataDatapoints));
-            // 处理Grafana所需的target值
-            var i = ycol.length;
-            // 处理Target组的所需返回结果集
-            while (i--) {
-              var datapoints = [];
-              var ycolTarget = ycol[i];
-              // console.log(ycolTarget);
-              // console.log(xcol);
-              // 封装返回目标的第一层数组值
-              _.each(dataDatapoints, Datapoint => {
-                let datapoint = [];
-                datapoint.push(Datapoint[ycolTarget], Datapoint[xcol]);
-                // 封装返回目标的第二层数组值
-                datapoints.push(datapoint);
-              });
-              // 封装返回目标的第三层数组值
-              resResult.push({
-                "target": describe + ycolTarget,
-                "datapoints": datapoints
-              });
-              // console.log(JSON.stringify(resResult));
-            }
-            // 转对象封装
-            result = result.concat(typeof resResult == 'string' ? JSON.parse(resResult) : resResult);
-          }
-        }).catch(function (error) {
-          console.log(error);
-        });
       });
       requests.push(request);
     })
     // 统一单独处理返回值(可优化)
-    return Promise.all(requests.map(p => p.catch(e => e)))
-      .then(requests => {
-        return { data: result };
+    return Promise.all(requests)
+      .then(res => {
+        return result;
       });
   }
+
+
+  doQuery(result, target, queryConcat) {
+    var param = {
+      path: queryConcat,
+      method: "GET"
+    };
+    // 签名已拼接的待查询URL
+    var query = this.buildRealUrl(param);
+    // console.log("查看query的值："+query);
+    if (_.isEmpty(query)) {
+      var d = this.q.defer();
+      d.resolve({ data: [] });
+      return d.promise;
+    }
+    // 根据URL发起请求
+    return this.backendSrv.datasourceRequest({
+      url: query,
+      method: 'GET',
+      headers: this.headers
+    }).then(response => {
+      if (response.status == '200' && response.data.Code == '200') {
+        //默认数组
+        var ycol = target.ycol;
+        var xcol = target.xcol;
+        var describe = target.describe;
+        if (!describe) {
+          describe = '';
+        } else {
+          describe = describe + ".";
+        }
+        // 处理返回结果 (需优化)
+        var resResult = [];
+        // 解析返回的Datapoints数据集
+        var dataDatapoints = angular.fromJson(response.data.Datapoints);
+        // console.log("长度"+dataDatapoints.length);
+        // console.log(JSON.stringify(dataDatapoints));
+        // 处理Grafana所需的target值
+        var i = ycol.length;
+        // 处理Target组的所需返回结果集
+        while (i--) {
+          var datapoints = [];
+          var ycolTarget = ycol[i];
+          // console.log(ycolTarget);
+          // console.log(xcol);
+          // 封装返回目标的第一层数组值
+          _.each(dataDatapoints, Datapoint => {
+            let datapoint = [];
+            datapoint.push(Datapoint[ycolTarget], Datapoint[xcol]);
+            // 封装返回目标的第二层数组值
+            datapoints.push(datapoint);
+          });
+          // 封装返回目标的第三层数组值
+          resResult.push({
+            "target": describe + ycolTarget,
+            "datapoints": datapoints
+          });
+          // console.log(JSON.stringify(resResult));
+        }
+        // 转对象封装
+        //return typeof resResult == 'string' ? JSON.parse(resResult) : resResult;
+        result.data = result.data.concat(typeof resResult == 'string' ? JSON.parse(resResult) : resResult);
+        //return result;
+      }else{
+        console.log(response.data);
+      }
+    }).catch(function (error) {
+      console.log(error);
+    });
+  }
+
+
 
   getVariableValue(name) {
     var variable = this.templateSrv.variables.find(p => ("$" + p.name) == name);
