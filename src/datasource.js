@@ -82,7 +82,7 @@ export class GenericDatasource {
                 "&Period=" + period + "&Dimensions=" + dimensions +
                 "&StartTime=" + (parseInt(options.range.from._d.getTime())) +
                 "&EndTime=" + (parseInt(options.range.to._d.getTime()));
-              pros.push(this.doQuery(result, target, queryConcat));
+              pros.push(this.doQuery(result, target, queryConcat, dimensionJson[i], i));
             }
             await Promise.all(pros)
           }
@@ -98,7 +98,7 @@ export class GenericDatasource {
   }
 
 
-  doQuery(result, target, queryConcat) {
+  doQuery(result, target, queryConcat, instanceId, index) {
     var param = {
       path: queryConcat,
       method: "GET"
@@ -123,9 +123,9 @@ export class GenericDatasource {
         var xcol = target.xcol;
         var describe = target.describe;
         if (!describe) {
-          describe = '';
+          describe = instanceId + ".";
         } else {
-          describe = describe + ".";
+          describe = instanceId + "." + describe + ".";
         }
         // 处理返回结果 (需优化)
         var resResult = [];
@@ -157,9 +157,13 @@ export class GenericDatasource {
         }
         // 转对象封装
         //return typeof resResult == 'string' ? JSON.parse(resResult) : resResult;
-        result.data = result.data.concat(typeof resResult == 'string' ? JSON.parse(resResult) : resResult);
+        var arr = typeof resResult == 'string' ? JSON.parse(resResult) : resResult;
+        for (var arrIndex = 0; arrIndex < arr.length; arrIndex++) {
+          result.data[(index * arr.length) + arrIndex] = arr[arrIndex];
+        }
+
         //return result;
-      }else{
+      } else {
         console.log(response.data);
       }
     }).catch(function (error) {

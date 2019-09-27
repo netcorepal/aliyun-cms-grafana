@@ -119,7 +119,7 @@ System.register(["lodash", "./signer.js"], function (_export, _context) {
                       //dimensionArray.push({ "instanceId": dimensionJson[i] });
                       dimensions = JSON.stringify({ "instanceId": dimensionJson[i] });
                       var queryConcat = query + "&Project=" + project + "&Metric=" + metric + "&Period=" + period + "&Dimensions=" + dimensions + "&StartTime=" + parseInt(options.range.from._d.getTime()) + "&EndTime=" + parseInt(options.range.to._d.getTime());
-                      pros.push(_this.doQuery(result, target, queryConcat));
+                      pros.push(_this.doQuery(result, target, queryConcat, dimensionJson[i], i));
                     }
                     await Promise.all(pros);
                   }
@@ -134,7 +134,7 @@ System.register(["lodash", "./signer.js"], function (_export, _context) {
           }
         }, {
           key: "doQuery",
-          value: function doQuery(result, target, queryConcat) {
+          value: function doQuery(result, target, queryConcat, instanceId, index) {
             var param = {
               path: queryConcat,
               method: "GET"
@@ -159,9 +159,9 @@ System.register(["lodash", "./signer.js"], function (_export, _context) {
                 var xcol = target.xcol;
                 var describe = target.describe;
                 if (!describe) {
-                  describe = '';
+                  describe = instanceId + ".";
                 } else {
-                  describe = describe + ".";
+                  describe = instanceId + "." + describe + ".";
                 }
                 // 处理返回结果 (需优化)
                 var resResult = [];
@@ -193,7 +193,11 @@ System.register(["lodash", "./signer.js"], function (_export, _context) {
                 }
                 // 转对象封装
                 //return typeof resResult == 'string' ? JSON.parse(resResult) : resResult;
-                result.data = result.data.concat(typeof resResult == 'string' ? JSON.parse(resResult) : resResult);
+                var arr = typeof resResult == 'string' ? JSON.parse(resResult) : resResult;
+                for (var arrIndex = 0; arrIndex < arr.length; arrIndex++) {
+                  result.data[index * arr.length + arrIndex] = arr[arrIndex];
+                }
+
                 //return result;
               } else {
                 console.log(response.data);
